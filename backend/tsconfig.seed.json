@@ -1,0 +1,15 @@
+{
+  // Compiles the seed (and the few src modules it imports) to plain JS so it
+  // can run in the production image, which has no ts-node. Kept separate from
+  // tsconfig.build.json because including prisma/ there raises rootDir and
+  // relocates dist/main.js.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-seed",
+    "incremental": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["prisma/seed.ts", "prisma/seed-data.ts", "src/common/constants.ts", "src/common/utils/order-number.ts"]
+}

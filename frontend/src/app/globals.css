@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * Warm neutral palette. Hue 25-30 across the greys gives the whole store a
+   * paper-and-linen feel rather than the blue-grey default that makes every
+   * storefront look like a dashboard.
+   */
+  :root {
+    --background: 40 33% 99%;
+    --foreground: 25 15% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 25 15% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 25 15% 15%;
+    --primary: 22 40% 33%;
+    --primary-foreground: 40 33% 98%;
+    --secondary: 35 25% 94%;
+    --secondary-foreground: 25 20% 25%;
+    --muted: 35 22% 95%;
+    --muted-foreground: 25 8% 45%;
+    --accent: 35 30% 92%;
+    --accent-foreground: 25 20% 22%;
+    --destructive: 0 65% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 45% 34%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 85% 45%;
+    --warning-foreground: 0 0% 100%;
+    --border: 30 18% 88%;
+    --input: 30 18% 86%;
+    --ring: 22 40% 40%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 25 14% 9%;
+    --foreground: 35 20% 92%;
+    --card: 25 13% 12%;
+    --card-foreground: 35 20% 92%;
+    --popover: 25 13% 12%;
+    --popover-foreground: 35 20% 92%;
+    --primary: 25 45% 62%;
+    --primary-foreground: 25 20% 12%;
+    --secondary: 25 10% 18%;
+    --secondary-foreground: 35 20% 90%;
+    --muted: 25 10% 17%;
+    --muted-foreground: 30 10% 62%;
+    --accent: 25 12% 22%;
+    --accent-foreground: 35 20% 92%;
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 145 40% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 75% 55%;
+    --warning-foreground: 25 20% 12%;
+    --border: 25 10% 22%;
+    --input: 25 10% 24%;
+    --ring: 25 45% 55%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  /* Respect users who have asked the OS to reduce motion. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Visible focus for keyboard users without a permanent outline for mouse users. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer components {
+  .display-heading {
+    @apply font-serif tracking-tight;
+  }
+
+  .product-grid {
+    @apply grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 lg:grid-cols-3 xl:grid-cols-4;
+  }
+
+  /* Skip link: first tab stop, hidden until focused. */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100]
+           focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground;
+  }
+}

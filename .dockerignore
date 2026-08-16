@@ -1,0 +1,19 @@
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/test-results
+**/playwright-report
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+# Runtime upload storage only. A bare `**/uploads` also matches
+# backend/src/modules/uploads/, which silently removed the uploads module
+# from the build context and broke the image build.
+backend/uploads/
+tests/
+docs/
+*.md

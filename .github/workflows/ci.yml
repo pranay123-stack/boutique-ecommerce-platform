@@ -1,0 +1,319 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # -------------------------------------------------------------- backend
+  backend:
+    name: Backend · lint, types, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: boutique
+          POSTGRES_PASSWORD: boutique_ci
+          POSTGRES_DB: boutique_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U boutique"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://boutique:boutique_ci@localhost:5432/boutique_test?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+      JWT_ACCESS_SECRET: ci-access-secret-0123456789abcdefghijklmnop
+      JWT_REFRESH_SECRET: ci-refresh-secret-zyxwvutsrqponmlkjihgfed
+      COOKIE_SECRET: ci-cookie-secret-0123456789abcdef
+      CSRF_SECRET: ci-csrf-secret-0123456789abcdef
+      BCRYPT_ROUNDS: '4'
+      PAYMENT_MODE: mock
+      SHIPPING_MODE: mock
+      NOTIFICATIONS_MODE: mock
+      LOG_LEVEL: silent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Apply migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
+      - name: Type check
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Unit tests
+        working-directory: backend
+        run: npm run test -- --ci --coverage
+
+      - name: Integration tests
+        working-directory: backend
+        run: npm run test:e2e
+
+      - name: Build
+        working-directory: backend
+        run: npm run build
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage
+          retention-days: 7
+
+  # ------------------------------------------------------------- frontend
+  frontend:
+    name: Frontend · lint, types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Component tests
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: /api/proxy
+          NEXT_PUBLIC_API_ORIGIN: http://localhost:4100
+        run: npm run build
+
+  # ------------------------------------------------------------------ e2e
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: boutique
+          POSTGRES_PASSWORD: boutique_ci
+          POSTGRES_DB: boutique_dev
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U boutique"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      NODE_ENV: development
+      PORT: '4100'
+      DATABASE_URL: postgresql://boutique:boutique_ci@localhost:5432/boutique_dev?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      FRONTEND_URL: http://localhost:3100
+      CORS_ORIGINS: http://localhost:3100
+      JWT_ACCESS_SECRET: e2e-access-secret-0123456789abcdefghijk
+      JWT_REFRESH_SECRET: e2e-refresh-secret-zyxwvutsrqponmlkjih
+      COOKIE_SECRET: e2e-cookie-secret-0123456789abcdef
+      CSRF_SECRET: e2e-csrf-secret-0123456789abcdef
+      BCRYPT_ROUNDS: '4'
+      PAYMENT_MODE: mock
+      SHIPPING_MODE: mock
+      NOTIFICATIONS_MODE: mock
+      STORAGE_DRIVER: local
+      STORAGE_PUBLIC_BASE_URL: http://localhost:4100/static
+      THROTTLE_LIMIT: '5000'
+      AUTH_THROTTLE_MULTIPLIER: '50'
+      LOG_LEVEL: warn
+      API_ORIGIN: http://localhost:4100
+      NEXT_PUBLIC_API_URL: /api/proxy
+      NEXT_PUBLIC_API_ORIGIN: http://localhost:4100
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm, cache-dependency-path: backend/package-lock.json }
+
+      - name: Install backend
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Migrate and seed
+        working-directory: backend
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+          npx ts-node prisma/seed.ts --reset
+
+      - name: Build and start API
+        working-directory: backend
+        run: |
+          npm run build
+          node dist/main.js &
+          npx wait-on http://localhost:4100/health/live --timeout 90000
+
+      - name: Install and build storefront
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Start storefront
+        working-directory: frontend
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3100 --timeout 90000
+
+      - name: Install Playwright
+        working-directory: tests
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Run end-to-end suite
+        working-directory: tests
+        env:
+          E2E_NO_SERVER: '1'
+        run: npx playwright test
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/playwright-report
+          retention-days: 7
+
+  # ------------------------------------------------------------- security
+  security:
+    name: Security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Audit backend dependencies
+        working-directory: backend
+        # Fails the build on high/critical advisories; moderate ones are reported.
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high
+
+      - name: Check for committed secrets
+        run: |
+          if git grep -nEI '(sk_live_|rzp_live_|-----BEGIN [A-Z ]*PRIVATE KEY-----)' -- \
+              ':!*.example' ':!*.md' ':!.github/*'; then
+            echo "::error::Possible live credential committed to the repository"
+            exit 1
+          fi
+          echo "No live credentials found."
+
+  # ------------------------------------------------- deployment readiness
+  deploy-readiness:
+    name: Deployment readiness
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, e2e, security]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production images
+        run: |
+          docker build -f docker/backend.Dockerfile -t boutique-backend:${{ github.sha }} .
+          docker build -f docker/frontend.Dockerfile -t boutique-frontend:${{ github.sha }} .
+
+      - name: Verify compose configuration
+        env:
+          JWT_ACCESS_SECRET: readiness-check-access-secret-0123456789
+          JWT_REFRESH_SECRET: readiness-check-refresh-secret-9876543210
+        run: docker compose config --quiet && echo "compose configuration is valid"
+
+      - name: Readiness summary
+        run: |
+          {
+            echo "### Deployment readiness ✅"
+            echo ""
+            echo "| Gate | Status |"
+            echo "|------|--------|"
+            echo "| Backend lint, types, unit + integration tests | passed |"
+            echo "| Frontend lint, types, component tests, build | passed |"
+            echo "| End-to-end suite | passed |"
+            echo "| Dependency audit (high/critical) | passed |"
+            echo "| Production images build | passed |"
+            echo ""
+            echo "Commit \`${{ github.sha }}\` is ready to promote."
+          } >> "$GITHUB_STEP_SUMMARY"

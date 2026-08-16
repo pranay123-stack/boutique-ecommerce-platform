@@ -1,0 +1,190 @@
+# ---------------------------------------------------------------------------
+# Boutique Commerce - full local stack
+#
+#   docker compose up -d --build
+#   docker compose exec backend npx prisma migrate deploy
+#   docker compose exec backend npm run db:seed
+#
+# Storefront  http://localhost:3100
+# API + docs  http://localhost:4100/api/v1/docs
+# ---------------------------------------------------------------------------
+
+name: boutique-commerce
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: boutique-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-boutique}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boutique_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-boutique_dev}
+      # Faster, deterministic collation for the test/dev dataset.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
+    ports:
+      - '${POSTGRES_PORT:-5470}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-boutique} -d ${POSTGRES_DB:-boutique_dev}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [boutique]
+
+  redis:
+    image: redis:7-alpine
+    container_name: boutique-redis
+    restart: unless-stopped
+    # Cache + queue: persist so queued jobs survive a restart.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - '${REDIS_PORT:-6399}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [boutique]
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: boutique-backend
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      # Deliberately NOT `${NODE_ENV}`: a shared .env usually carries
+      # NODE_ENV=development for host-side work, which would put a production
+      # build into development mode.
+      #
+      # `staging` is the right default for a containerised local run: it uses
+      # the production images and JSON logs, keeps Swagger available for
+      # exploration, and permits the mock payment/shipping providers so
+      # `docker compose up` works with no gateway credentials. Real production
+      # sets COMPOSE_NODE_ENV=production together with PAYMENT_MODE=live and
+      # live keys - the API refuses to boot with mock providers otherwise.
+      NODE_ENV: ${COMPOSE_NODE_ENV:-staging}
+      PORT: 4100
+      API_PREFIX: api/v1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-boutique}:${POSTGRES_PASSWORD:-boutique_dev_pw}@postgres:5432/${POSTGRES_DB:-boutique_dev}?schema=public&connection_limit=20
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3100}
+      BACKEND_URL: ${BACKEND_URL:-http://localhost:4100}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3100}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      COOKIE_SECRET: ${COOKIE_SECRET:-change-me-cookie-secret}
+      CSRF_SECRET: ${CSRF_SECRET:-change-me-csrf-secret}
+      PAYMENT_MODE: ${PAYMENT_MODE:-mock}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_placeholder}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-rzp_test_secret_placeholder}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-whsec_test_placeholder}
+      SHIPPING_MODE: ${SHIPPING_MODE:-mock}
+      NOTIFICATIONS_MODE: ${NOTIFICATIONS_MODE:-mock}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      # Stock photography for the demo catalogue. Only read by the seed, and
+      # only until the merchant supplies their own product photographs - at
+      # which point both of these can go.
+      SEED_IMAGE_SOURCE: ${SEED_IMAGE_SOURCE:-generated}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-/static}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: 'false'
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-600}
+      # Proxy hops to trust when resolving the client IP. Without this every
+      # customer behind a load balancer shares one rate-limit bucket, and the
+      # whole store starts returning 429 once that shared quota is spent.
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      THROTTLE_USE_REDIS: ${THROTTLE_USE_REDIS:-true}
+      # --- GST and invoicing (India) ------------------------------------
+      # These are the merchant's own particulars. The defaults below are
+      # placeholders that let `docker compose up` work out of the box; a live
+      # deployment MUST override them, because a tax invoice carrying the
+      # wrong GSTIN or state is defective and charges the wrong heads of tax.
+      TAX_PRICES_INCLUDE_GST: ${TAX_PRICES_INCLUDE_GST:-true}
+      TAX_ROUND_OFF_TOTAL: ${TAX_ROUND_OFF_TOTAL:-true}
+      SELLER_GSTIN: ${SELLER_GSTIN:-29AABCU9603R1ZX}
+      SELLER_LEGAL_NAME: ${SELLER_LEGAL_NAME:-Boutique Commerce Private Limited}
+      SELLER_TRADE_NAME: ${SELLER_TRADE_NAME:-Boutique}
+      SELLER_ADDRESS: ${SELLER_ADDRESS:-14 Residency Road, Bengaluru, Karnataka 560025}
+      SELLER_STATE: ${SELLER_STATE:-Karnataka}
+      SELLER_PAN: ${SELLER_PAN:-AABCU9603R}
+      INVOICE_PREFIX: ${INVOICE_PREFIX:-INV}
+      # --- Cash on delivery ---------------------------------------------
+      COD_ENABLED: ${COD_ENABLED:-true}
+      COD_CHARGE: ${COD_CHARGE:-49}
+      COD_MIN_ORDER: ${COD_MIN_ORDER:-0}
+      COD_MAX_ORDER: ${COD_MAX_ORDER:-20000}
+      # --- Returns and support ------------------------------------------
+      # Keep RETURN_WINDOW_DAYS in step with the frontend build arg below, or
+      # the policy page will promise something the API refuses.
+      RETURN_WINDOW_DAYS: ${RETURN_WINDOW_DAYS:-7}
+      EXCHANGE_WINDOW_DAYS: ${EXCHANGE_WINDOW_DAYS:-14}
+      SUPPORT_INBOX: ${SUPPORT_INBOX:-support@boutique.local}
+    ports:
+      - '${BACKEND_PORT:-4100}:4100'
+    volumes:
+      - uploads-data:/app/uploads
+    networks: [boutique]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: /api/proxy
+        NEXT_PUBLIC_API_ORIGIN: http://backend:4100
+        # NEXT_PUBLIC_* values are inlined at build time, so the legal pages
+        # take their content from here rather than from the runtime
+        # environment. Changing any of these requires a frontend rebuild.
+        NEXT_PUBLIC_SITE_URL: ${FRONTEND_URL:-http://localhost:3100}
+        NEXT_PUBLIC_LEGAL_NAME: ${SELLER_LEGAL_NAME:-Boutique Commerce Private Limited}
+        NEXT_PUBLIC_GSTIN: ${SELLER_GSTIN:-29AABCU9603R1ZX}
+        NEXT_PUBLIC_BUSINESS_ADDRESS: ${SELLER_ADDRESS:-14 Residency Road, Bengaluru, Karnataka 560025}
+        NEXT_PUBLIC_SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@boutique.local}
+        NEXT_PUBLIC_SUPPORT_PHONE: ${SUPPORT_PHONE:-+91 80 4000 1234}
+        NEXT_PUBLIC_GRIEVANCE_OFFICER: ${GRIEVANCE_OFFICER:-}
+        NEXT_PUBLIC_GRIEVANCE_EMAIL: ${GRIEVANCE_EMAIL:-}
+        NEXT_PUBLIC_JURISDICTION: ${JURISDICTION:-Bengaluru, Karnataka}
+        NEXT_PUBLIC_RETURN_WINDOW_DAYS: ${RETURN_WINDOW_DAYS:-7}
+        NEXT_PUBLIC_EXCHANGE_WINDOW_DAYS: ${EXCHANGE_WINDOW_DAYS:-14}
+        NEXT_PUBLIC_COD_CHARGE: ${COD_CHARGE:-49}
+        # Staging and preview deployments must set this false so a duplicate
+        # copy of the shop never competes with the real one in search results.
+        NEXT_PUBLIC_ALLOW_INDEXING: ${ALLOW_INDEXING:-true}
+    container_name: boutique-frontend
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      # Server-side rendering talks to the API over the compose network.
+      API_ORIGIN: http://backend:4100
+      NEXT_PUBLIC_API_URL: /api/proxy
+      NEXT_PUBLIC_API_ORIGIN: http://backend:4100
+    ports:
+      - '${FRONTEND_PORT:-3100}:3100'
+    networks: [boutique]
+
+volumes:
+  postgres-data:
+  redis-data:
+  uploads-data:
+
+networks:
+  boutique:
+    driver: bridge
