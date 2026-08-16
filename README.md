@@ -163,7 +163,7 @@ with `STORAGE_PUBLIC_BASE_URL` pointed at your CDN.
 | [docs/GO-LIVE.md](docs/GO-LIVE.md) | What the merchant must supply before taking real money |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design and the reasoning behind it |
 | [docs/SECURITY.md](docs/SECURITY.md) | Controls implemented, threats addressed, pre-launch checklist |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Environments, zero-downtime releases, gateway setup |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Docker and Railway deployment, releases, gateway setup |
 | [docs/TESTING.md](docs/TESTING.md) | Test strategy and the bugs it caught |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Measurements at 100k products and the optimisation found |
 | [database/README.md](database/README.md) | Schema design, indexing, concurrency |
