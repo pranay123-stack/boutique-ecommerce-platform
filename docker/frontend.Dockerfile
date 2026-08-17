@@ -64,6 +64,10 @@ RUN apk add --no-cache curl tini \
 # `standalone` ships a minimal server plus only the modules actually imported.
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
+# `frontend/public/` must stay tracked in git even when empty - it is kept
+# alive by a .gitkeep. Git does not track empty directories, so without it a
+# fresh clone has no public/ and this COPY fails with "not found" on any build
+# server, while still succeeding locally where the directory exists on disk.
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --chown=nextjs:nodejs docker/frontend-entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
