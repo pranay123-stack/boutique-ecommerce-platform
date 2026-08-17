@@ -188,7 +188,14 @@ export const api = {
  * browser-relative rewrite and must call the API origin directly.
  */
 export async function serverFetch<T>(path: string, revalidate = 60): Promise<T | null> {
-  const origin = process.env.API_ORIGIN ?? 'http://localhost:4100';
+  // Two names existed for one concept: this read API_ORIGIN while the
+  // rewrites in next.config.mjs and the sitemap read NEXT_PUBLIC_API_ORIGIN.
+  // Setting only the latter - the obvious thing to do, since it is the one
+  // that appears in the deployment docs - left server-side fetches pointed at
+  // localhost, so every ISR page rendered its "catalogue unavailable"
+  // fallback while the rest of the site worked. Accept either.
+  const origin =
+    process.env.API_ORIGIN ?? process.env.NEXT_PUBLIC_API_ORIGIN ?? 'http://localhost:4100';
   try {
     const res = await fetch(`${origin}/api/v1${path}`, {
       next: { revalidate },

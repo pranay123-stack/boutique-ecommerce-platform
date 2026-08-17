@@ -129,6 +129,10 @@ serving the old values:
 
 ```bash
 NEXT_PUBLIC_API_ORIGIN=https://<api PUBLIC domain>
+# Server-side fetches read API_ORIGIN. It accepts NEXT_PUBLIC_API_ORIGIN as a
+# fallback, so this line is belt-and-braces - but set it explicitly and the
+# storefront cannot silently render its offline fallback.
+API_ORIGIN=https://<api PUBLIC domain>
 NEXT_PUBLIC_SITE_URL=https://<web domain>
 NEXT_PUBLIC_SITE_NAME=Boutique
 # …plus the business identity from frontend/.env.example, or the policy pages
