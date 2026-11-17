@@ -74,8 +74,15 @@ Committed at the root:
 
 | File | Service | Dockerfile |
 |------|---------|------------|
+| `railway.json` | any service with no config file set (= `api`) | `docker/backend.Dockerfile` |
 | `railway.api.json` | `api` | `docker/backend.Dockerfile` |
 | `railway.web.json` | `web` | `docker/frontend.Dockerfile` |
+
+`railway.json` is a copy of `railway.api.json`. Without it, a service whose
+config-file setting is missing or not yet saved falls back to Railpack, which
+runs the root `npm run build` with `NODE_ENV=production`, skips dev
+dependencies and dies on `sh: nest: not found`. With it, the default is the
+API image. Keep the two files identical.
 
 ### Setting it up
 
