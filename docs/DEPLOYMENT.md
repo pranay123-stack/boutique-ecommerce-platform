@@ -191,6 +191,36 @@ The catch is the warm-up above — Vercel does not run the Dockerfile entrypoint
 Deploy the API first and point `NEXT_PUBLIC_API_ORIGIN` at its live public
 domain so `next build` can reach it and prerender real content.
 
+**Only the storefront goes on Vercel.** Importing the repository with the
+default settings deploys from the repo root, which is not an app: the root
+`build` script compiles the NestJS API too, Vercel cannot detect a framework,
+and every URL returns `500 FUNCTION_INVOCATION_FAILED` (even `/robots.txt`).
+The API needs Postgres, Redis and a resident process, so it stays on Railway
+(or Docker).
+
+1. Deploy the API on Railway first (above) and note its public domain.
+2. In the Vercel project → **Settings → Build & Deployment**:
+   - **Root Directory:** `frontend`
+   - **Framework Preset:** Next.js (`frontend/vercel.json` pins this, plus
+     `npm ci` / `npm run build`)
+3. **Settings → Environment Variables** (Production and Preview):
+
+   ```bash
+   API_ORIGIN=https://<api>.up.railway.app
+   NEXT_PUBLIC_API_ORIGIN=https://<api>.up.railway.app
+   NEXT_PUBLIC_API_URL=/api/proxy
+   NEXT_PUBLIC_SITE_URL=https://<project>.vercel.app
+   # …plus the business identity from frontend/.env.example
+   ```
+
+   `NEXT_PUBLIC_*` values are inlined at build time, and the `/api/proxy` and
+   `/static` rewrites are resolved at build time from `NEXT_PUBLIC_API_ORIGIN`,
+   so **redeploy after changing any of them**. Left unset they fall back to
+   `http://localhost:4100`, which does not exist on Vercel: the site loads but
+   the catalogue is empty and login/cart calls fail.
+4. On the API service, set `FRONTEND_URL` and `CORS_ORIGINS` to the Vercel
+   domain, since emails and payment redirects link back to it.
+
 ## Authoring a migration
 
 Always use `npm run migrate:new -- --name your_migration` from `backend/`,
